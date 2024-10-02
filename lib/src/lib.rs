@@ -1,7 +1,3 @@
-use reth_primitives::Header;
-use serde::{Deserialize, Serialize};
+use alloy_primitives::{address, Address};
 
-#[derive(Serialize, Deserialize)]
-pub struct ProgramInput {
-    pub header_chain: Vec<Header>,
-}
+pub const MY_CONTRACT: Address = address!("6b175474e89094c44da98b954eedeac495271d0f");

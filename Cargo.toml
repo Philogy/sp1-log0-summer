@@ -17,6 +17,8 @@ reth-primitives = { git = "https://github.com/sp1-patches/reth", tag = "rsp-2024
     "alloy-compat",
     "std",
 ] }
+alloy-rlp = "0.3.8"
+alloy-rpc-types-eth = "0.4.2"
 
-[rust-analyzer.cargo]
-ignore-rust-version = true
+[patch.crates-io]
+tiny-keccak = { git = "https://github.com/sp1-patches/tiny-keccak", branch = "patch-v2.0.2" }

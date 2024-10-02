@@ -1,35 +1,24 @@
-//! A simple program that takes a number `n` as input, and writes the `n-1`th and `n`th fibonacci
-//! number as an output.
-
-// These two lines are necessary for the program to properly compile.
-//
-// Under the hood, we wrap your main function with some extra code so that it behaves properly
-// inside the zkVM.
+// SP1 Magic: Do not remove
 #![no_main]
 sp1_zkvm::entrypoint!(main);
 
-use log0_summer_lib::ProgramInput;
+use reth_primitives::Header;
 
 pub fn main() {
-    // Read an input to the program.
-    //
-    // Behind the scenes, this compiles down to a custom system call which handles reading inputs
-    // from the prover.
-    let input = sp1_zkvm::io::read::<ProgramInput>();
-
-    let start_header = &input.header_chain[0].parent_hash;
-    let end_header = input
-        .header_chain
-        .iter()
-        .fold(start_header.clone(), |prev_hash, header| {
-            assert_eq!(prev_hash.as_slice(), header.parent_hash.as_slice());
-            header.hash_slow()
-        });
+    let length = sp1_zkvm::io::read::<u32>();
+    let first_header = sp1_zkvm::io::read::<Header>();
+    let start_hash = first_header.parent_hash;
+    let mut hash = first_header.hash_slow();
+    for _ in 1..length {
+        let next_header = sp1_zkvm::io::read::<Header>();
+        assert_eq!(hash, next_header.parent_hash);
+        hash = next_header.hash_slow();
+    }
 
     let mut final_output = [0; 64];
 
-    final_output[0..32].copy_from_slice(start_header.as_slice());
-    final_output[32..64].copy_from_slice(end_header.as_slice());
+    final_output[0..32].copy_from_slice(start_hash.as_slice());
+    final_output[32..64].copy_from_slice(hash.as_slice());
 
     sp1_zkvm::io::commit_slice(&final_output);
 }

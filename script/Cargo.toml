@@ -26,6 +26,9 @@ tokio = "1.40.0"
 alloy-provider = {version = "0.4.2", default-features = false, features = ["reqwest", "rpc-api"]}
 eyre = "0.6.12"
 futures = "0.3.30"
+alloy-rlp.workspace = true
+alloy-rpc-types-eth.workspace = true
+alloy-primitives.workspace = true
 
 [build-dependencies]
 sp1-helper = "2.0.0"

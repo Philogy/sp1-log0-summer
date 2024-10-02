@@ -1,18 +1,8 @@
-//! An end-to-end example of using the SP1 SDK to generate a proof of a program that can be executed
-//! or have a core proof generated.
-//!
-//! You can run this script using the following command:
-//! ```shell
-//! RUST_LOG=info cargo run --release -- --execute
-//! ```
-//! or
-//! ```shell
-//! RUST_LOG=info cargo run --release -- --prove
-//! ```
-
+use alloy_primitives::BloomInput;
 use alloy_provider::{Provider, ProviderBuilder};
+use alloy_rpc_types_eth::Filter;
 use clap::Parser;
-use log0_summer_lib::ProgramInput;
+use log0_summer_lib::MY_CONTRACT;
 use reth_primitives::Header;
 use sp1_sdk::{ProverClient, SP1Stdin};
 
@@ -37,6 +27,30 @@ struct Args {
 
     #[clap(long, help = "end block")]
     end: u64,
+
+    #[clap(long, default_value_t = 1_000)]
+    chunk_size: u64,
+}
+
+struct RangeChunks {
+    current: u64,
+    end: u64,
+    chunk_size: u64,
+}
+
+impl Iterator for RangeChunks {
+    type Item = std::ops::Range<u64>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.current == self.end {
+            None
+        } else {
+            let next_edge = self.end.min(self.current + self.chunk_size);
+            let range = self.current..next_edge;
+            self.current = next_edge;
+            Some(range)
+        }
+    }
 }
 
 #[tokio::main]
@@ -50,12 +64,49 @@ async fn main() -> eyre::Result<()> {
     let rpc_url = args.rpc_url.parse()?;
     let provider = ProviderBuilder::new().on_http(rpc_url);
 
-    println!("fetching blocks {}-{}", args.start, args.end);
+    // let filter = Filter::new()
+    //     .from_block(args.start)
+    //     .to_block(args.end)
+    //     .address(MY_CONTRACT);
 
-    let blocks = futures::future::try_join_all(
-        (args.start..=args.end).map(|block| provider.get_block_by_number(block.into(), false)),
-    )
-    .await?;
+    // let the_logs = provider.get_logs(&filter).await?;
+    let total_blocks = (args.end - args.start) as usize;
+
+    let mut blocks: Vec<_> = Vec::with_capacity(total_blocks);
+
+    println!("args.start: {}", args.start);
+    println!("args.end: {}", args.end);
+
+    let chunks = RangeChunks {
+        current: args.start,
+        end: args.end,
+        chunk_size: args.chunk_size,
+    };
+    for blocks_chunk in chunks {
+        println!("fetching chunk {}-{}", blocks_chunk.start, blocks_chunk.end);
+        blocks.extend(
+            futures::future::try_join_all(
+                blocks_chunk.map(|block| provider.get_block_by_number(block.into(), false)),
+            )
+            .await?,
+        );
+    }
+
+    // let contract_bloom = BloomInput::Raw(MY_CONTRACT.as_slice()).into();
+
+    // for (number, block) in (args.start..args.end).zip(blocks.iter()) {
+    //     let block = block.as_ref().unwrap();
+    //     let log_count = the_logs
+    //         .iter()
+    //         .filter(|log| log.block_number.unwrap() == number)
+    //         .count();
+    //     let bloom_hit = block.header.logs_bloom.contains(&contract_bloom);
+    //     if bloom_hit {
+    //         let emoji = if log_count > 0 { '✅' } else { '❌' };
+    //         println!("{}: {} ({})", number, log_count, emoji);
+    //     }
+    // }
+
     let headers: Vec<_> = blocks
         .into_iter()
         .map(|block| block.expect("missing block in range").header)
@@ -89,13 +140,15 @@ async fn main() -> eyre::Result<()> {
     // Setup the prover client.
     let client = ProverClient::new();
 
-    let input = ProgramInput {
-        header_chain: headers,
-    };
-
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
-    stdin.write(&input);
+
+    println!("headers.len(): {}", headers.len());
+
+    stdin.write(&(headers.len() as u32));
+    for header in headers.iter() {
+        stdin.write(header);
+    }
 
     if args.execute {
         // Execute the program
@@ -112,6 +165,10 @@ async fn main() -> eyre::Result<()> {
 
         // Record the number of cycles executed.
         println!("Number of cycles: {}", report.total_instruction_count());
+        println!(
+            "Cycles per block: {}",
+            report.total_instruction_count() / (args.end - args.start)
+        );
     } else {
         // Setup the program for proving.
         let (pk, vk) = client.setup(ELF);
