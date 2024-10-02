@@ -10,71 +10,111 @@
 //! RUST_LOG=info cargo run --release -- --prove
 //! ```
 
-use alloy_sol_types::SolType;
+use alloy_provider::{Provider, ProviderBuilder};
 use clap::Parser;
-use fibonacci_lib::PublicValuesStruct;
+use log0_summer_lib::ProgramInput;
+use reth_primitives::Header;
 use sp1_sdk::{ProverClient, SP1Stdin};
 
 /// The ELF (executable and linkable format) file for the Succinct RISC-V zkVM.
-pub const FIBONACCI_ELF: &[u8] = include_bytes!("../../../elf/riscv32im-succinct-zkvm-elf");
+pub const ELF: &[u8] = include_bytes!("../../../elf/riscv32im-succinct-zkvm-elf");
 
 /// The arguments for the command.
-#[derive(Parser, Debug)]
+#[derive(Debug, Parser)]
 #[clap(author, version, about, long_about = None)]
 struct Args {
-    #[clap(long)]
+    #[clap(long, group = "mode")]
     execute: bool,
 
-    #[clap(long)]
+    #[clap(long, group = "mode")]
     prove: bool,
 
-    #[clap(long, default_value = "20")]
-    n: u32,
+    #[clap(long, default_value = "http://localhost:8545")]
+    rpc_url: String,
+
+    #[clap(long, help = "start block")]
+    start: u64,
+
+    #[clap(long, help = "end block")]
+    end: u64,
 }
 
-fn main() {
+#[tokio::main]
+async fn main() -> eyre::Result<()> {
     // Setup the logger.
     sp1_sdk::utils::setup_logger();
 
     // Parse the command line arguments.
     let args = Args::parse();
 
-    if args.execute == args.prove {
-        eprintln!("Error: You must specify either --execute or --prove");
-        std::process::exit(1);
-    }
+    let rpc_url = args.rpc_url.parse()?;
+    let provider = ProviderBuilder::new().on_http(rpc_url);
+
+    println!("fetching blocks {}-{}", args.start, args.end);
+
+    let blocks = futures::future::try_join_all(
+        (args.start..=args.end).map(|block| provider.get_block_by_number(block.into(), false)),
+    )
+    .await?;
+    let headers: Vec<_> = blocks
+        .into_iter()
+        .map(|block| block.expect("missing block in range").header)
+        .map(|header| Header {
+            parent_hash: header.parent_hash,
+            ommers_hash: header.uncles_hash,
+            beneficiary: header.miner,
+            state_root: header.state_root,
+            transactions_root: header.transactions_root,
+            receipts_root: header.receipts_root,
+            withdrawals_root: header.withdrawals_root,
+            logs_bloom: header.logs_bloom,
+            difficulty: header.difficulty,
+            number: header.number,
+            gas_limit: header.gas_limit,
+            gas_used: header.gas_used,
+            timestamp: header.timestamp,
+            mix_hash: header.mix_hash.unwrap(),
+            nonce: header.nonce.unwrap().into(),
+            base_fee_per_gas: header.base_fee_per_gas,
+            blob_gas_used: header.blob_gas_used,
+            excess_blob_gas: header.excess_blob_gas,
+            parent_beacon_block_root: header.parent_beacon_block_root,
+            requests_root: header.requests_root,
+            extra_data: header.extra_data,
+        })
+        .collect();
+
+    println!("blocks fetched");
 
     // Setup the prover client.
     let client = ProverClient::new();
 
+    let input = ProgramInput {
+        header_chain: headers,
+    };
+
     // Setup the inputs.
     let mut stdin = SP1Stdin::new();
-    stdin.write(&args.n);
-
-    println!("n: {}", args.n);
+    stdin.write(&input);
 
     if args.execute {
         // Execute the program
-        let (output, report) = client.execute(FIBONACCI_ELF, stdin).run().unwrap();
+        let (output, report) = client.execute(ELF, stdin).run().unwrap();
         println!("Program executed successfully.");
 
         // Read the output.
-        let decoded = PublicValuesStruct::abi_decode(output.as_slice(), true).unwrap();
-        let PublicValuesStruct { n, a, b } = decoded;
-        println!("n: {}", n);
-        println!("a: {}", a);
-        println!("b: {}", b);
+        let out = output.as_slice();
 
-        let (expected_a, expected_b) = fibonacci_lib::fibonacci(n);
-        assert_eq!(a, expected_a);
-        assert_eq!(b, expected_b);
-        println!("Values are correct!");
+        let start_header = &out[0..32];
+        let end_header = &out[32..64];
+        println!("start_header: 0x{}", hex::encode(start_header));
+        println!("end_header: 0x{}", hex::encode(end_header));
 
         // Record the number of cycles executed.
         println!("Number of cycles: {}", report.total_instruction_count());
     } else {
         // Setup the program for proving.
-        let (pk, vk) = client.setup(FIBONACCI_ELF);
+        let (pk, vk) = client.setup(ELF);
 
         // Generate the proof
         let proof = client
@@ -88,4 +128,6 @@ fn main() {
         client.verify(&proof, &vk).expect("failed to verify proof");
         println!("Successfully verified proof!");
     }
+
+    Ok(())
 }

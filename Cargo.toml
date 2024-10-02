@@ -7,4 +7,16 @@ members = [
 resolver = "2"
 
 [workspace.dependencies]
-alloy-sol-types = "0.7.7"
+alloy-primitives = "0.8.5"
+alloy-sol-types = "0.8.5"
+sp1-zkvm = "2.0.0"
+sp1-sdk = "2.0.0"
+serde = { version = "1.0", default-features = false, features = ["derive"] }
+log0-summer-lib = { path = "./lib" }
+reth-primitives = { git = "https://github.com/sp1-patches/reth", tag = "rsp-20240830", default-features = false, features = [
+    "alloy-compat",
+    "std",
+] }
+
+[rust-analyzer.cargo]
+ignore-rust-version = true

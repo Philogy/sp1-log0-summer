@@ -1,7 +1,11 @@
 [package]
-name = "fibonacci-lib"
+name = "log0-summer-lib"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-alloy-sol-types = { workspace = true }
+serde.workspace = true
+alloy-sol-types.workspace = true
+alloy-primitives.workspace = true
+reth-primitives.workspace = true
+
